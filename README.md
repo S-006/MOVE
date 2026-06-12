@@ -1,80 +1,85 @@
-{
-import time
-import ctypes
-from ctypes import wintypes
-import random
+明白了，你需要的是一个 **给 GitHub Copilot 的“Skill”定义**——也就是一段结构化的指令，让 Copilot 能自动为你的 Python AI Agent 生成完整的 Web 模块，包括美观的界面和测试代码，而不是手把手让你自己写。
 
-class POINT(ctypes.Structure):
-    _fields_ = [
-        ("x", wintypes.LONG),
-        ("y", wintypes.LONG),
-    ]
+下面就是可以直接发给 Copilot（或作为 `.github/copilot-instructions.md` 或对话提示）的 **Skill**。
 
-user32 = ctypes.windll.user32
-SCREEN_WIDTH = user32.GetSystemMetrics(0)
-SCREEN_HEIGHT = user32.GetSystemMetrics(1)
+---
 
-# 每次移动距离（随机范围）
-MIN_STEP = 10
-MAX_STEP = 50
-# 间隔时间（随机范围，避免规律）
-MIN_INTERVAL = 3
-MAX_INTERVAL = 8
+## Skill 名称: `add_web_interface_to_python_agent`
 
-def get_mouse_position():
-    point = POINT()
-    user32.GetCursorPos(ctypes.byref(point))
-    return point.x, point.y
+### 目标
+为现有的 Python AI Agent 工具增加一个 HTTP Web 服务模块，用户通过**美观的网页界面**输入问题，Agent 自动处理并返回结果。同时生成对应的**单元测试**，确保模块正常工作。
 
-def set_mouse_position(x, y):
-    user32.SetCursorPos(x, y)
+### 当前项目状态
+- 有一个 Python 文件（具体路径请 Copilot 自行推断或询问用户），其中包含一个可以通过命令行运行的 AI Agent。
+- Agent 的核心函数假设为 `run_agent(user_input: str) -> str`（如果实际函数名不同，请自动适配或要求用户确认）。
 
-def simulate_key_press():
-    # 模拟按一下Shift键，重置系统空闲状态
-    VK_SHIFT = 0x10
-    user32.keybd_event(VK_SHIFT, 0, 0, 0)
-    user32.keybd_event(VK_SHIFT, 0, 0x0002, 0)
+### 要求
 
-def calculate_safe_position(x, y):
-    # 随机选择移动方向和距离
-    step = random.randint(MIN_STEP, MAX_STEP)
-    direction = random.choice(["right", "left", "up", "down"])
-    
-    if direction == "right" and x + step < SCREEN_WIDTH:
-        return x + step, y
-    elif direction == "left" and x - step >= 0:
-        return x - step, y
-    elif direction == "up" and y - step >= 0:
-        return x, y - step
-    elif direction == "down" and y + step < SCREEN_HEIGHT:
-        return x, y + step
-    else:
-        # 方向不可行时，换一个方向
-        return calculate_safe_position(x, y)
+#### 1. Web 框架
+- 使用 **FastAPI**（轻量、高性能、自动生成 API 文档）。
+- 使用 **Uvicorn** 作为服务器。
 
-def main():
-    print("Mouse mover started. Press Ctrl + C to stop.")
-    print(f"Move every {MIN_INTERVAL}-{MAX_INTERVAL} seconds, step = {MIN_STEP}-{MAX_STEP}px")
-    try:
-        while True:
-            original_x, original_y = get_mouse_position()
-            new_x, new_y = calculate_safe_position(original_x, original_y)
-            
-            # 移动鼠标
-            set_mouse_position(new_x, new_y)
-            time.sleep(0.1)
-            # 移回原位
-            set_mouse_position(original_x, original_y)
-            
-            # 模拟按键，重置系统空闲
-            simulate_key_press()
-            
-            # 随机间隔，避免规律
-            interval = random.randint(MIN_INTERVAL, MAX_INTERVAL)
-            time.sleep(interval)
-    except KeyboardInterrupt:
-        print("\nMouse mover stopped.")
+#### 2. 功能端点
+- `GET /`：返回一个美观的 HTML 页面（见下方界面要求）。
+- `POST /chat`：接收 JSON `{"question": "用户问题"}`，调用 `run_agent`，返回 `{"answer": "agent回答"}`。
+- 添加一个简单的健康检查端点 `GET /health`，返回 `{"status": "ok"}`。
 
-if __name__ == "__main__":
-    main()
-}
+#### 3. 前端界面要求（美观）
+- 使用 **Tailwind CSS**（通过 CDN）或 **Bootstrap 5**（选择更现代的一种）。
+- 页面包含：
+  - 标题：AI Agent 对话界面。
+  - 一个大的文本框（`<textarea>`）供用户输入问题。
+  - 一个发送按钮，加载时显示“思考中…”的 loading 状态。
+  - 一个用于展示回答的区域，支持 Markdown 风格的简单渲染（例如换行、加粗等，可选）。
+  - 响应式设计，在手机和桌面都好看。
+  - 深色/浅色模式可选（但非强制，如果简单实现则用浅色 + 半透明卡片效果）。
+- 通过 Fetch API 调用 `/chat` 端点，处理错误（如网络错误、服务器错误）。
+
+#### 4. 与现有 Agent 的集成
+- 假设 `run_agent` 位于某个模块，你需要自动找到该函数或让用户指定。
+- 生成的新文件命名为 `web_service.py`，放在项目根目录。
+- 在 `web_service.py` 中导入 `run_agent`（如果导入路径不确定，使用动态导入或让用户调整）。
+
+#### 5. 测试
+- 使用 **pytest** 和 **httpx**（或 FastAPI 的 `TestClient`）编写测试文件 `test_web_service.py`。
+- 测试覆盖：
+  - 根路径返回 200 且包含预期的 HTML 元素（如标题、textarea）。
+  - `/chat` 正常返回 JSON 且调用 `run_agent` 返回正确回答。
+  - `/chat` 参数缺失时返回 400。
+  - `/health` 返回 200。
+  - 可以 mock `run_agent` 以避免依赖真实 Agent 逻辑。
+- 提供运行测试的命令说明。
+
+#### 6. 运行说明
+- 在生成的代码顶部注释中说明如何启动服务：
+  ```bash
+  pip install fastapi uvicorn pytest httpx
+  python web_service.py
+  ```
+- 也可以支持 `uvicorn web_service:app --reload` 的开发模式。
+
+### 额外要求
+- **不要**修改原有的 Agent 核心代码（除非必须暴露函数，但尽量只是导入）。
+- 确保 CORS 未开放（本地开发可以不加，或添加必要的安全头）。
+- 所有代码必须有清晰的注释，方便后续维护。
+
+### 验收标准
+1. 运行 `python web_service.py` 后，在浏览器打开 `http://localhost:8000` 能看到美观的聊天界面。
+2. 输入问题，能正确显示 Agent 的回答。
+3. 运行 `pytest test_web_service.py`，所有测试通过。
+4. 代码风格符合 PEP 8，没有明显的冗余。
+
+---
+
+## 如何使用这个 Skill
+
+将上面的完整内容复制粘贴到与 GitHub Copilot 的对话中，并说：
+
+> “请根据上面的 Skill 定义，为我的 Python AI Agent 项目自动生成 web 模块、前端界面和测试代码。”
+
+Copilot 将理解你的需求并生成相应的文件内容。如果它对现有 Agent 的入口函数不确定，会主动询问你。
+
+如果你希望 Copilot **全自动** 完成（无需询问），可以在 Skill 开头添加：
+> “假设 Agent 的核心函数名为 `run_agent`，位于 `agent.py` 文件中。”
+
+这样 Copilot 就会直接生成代码。
